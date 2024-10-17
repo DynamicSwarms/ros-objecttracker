@@ -1,0 +1,3 @@
+[submodule "object_tracker/dependencies/libobjecttracker"]
+	path = object_tracker/dependencies/libobjecttracker
+	url = https://github.com/DynamicSwarms/libobjecttracker

@@ -1,0 +1,7 @@
+std_msgs/String tf_name
+uint8 marker_configuration_idx
+uint8 dynamics_configuration_idx
+geometry_msgs/Pose initial_pose
+float32 max_initial_deviation
+---
+bool success
