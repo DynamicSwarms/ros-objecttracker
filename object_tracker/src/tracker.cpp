@@ -66,12 +66,14 @@ class ObjectTracker : public rclcpp::Node
 
       m_tracker->update(markers);
 
+      std::vector<libobjecttracker::Object> objects;
       for (size_t i = 0; i < m_tracker->objects().size(); i++) {
           if (m_tracker->objects()[i].lastTransformationValid())
           {
-            sendPoseToTF(m_tracker->objects()[i], msg->header.frame_id);
+            objects.push_back(m_tracker->objects()[i]);
           }          
       }
+      sendPosesToTF(objects, msg->header.frame_id);
     }
 
     void supervise_tracking()
@@ -143,28 +145,32 @@ class ObjectTracker : public rclcpp::Node
       response->success = m_tracker->removeAllObjects();
     }
 
-    void sendPoseToTF(const libobjecttracker::Object& object, const std::string frame_id) 
+    void sendPosesToTF(const std::vector<libobjecttracker::Object>& objects, const std::string frame_id) 
     {
-      const Eigen::Affine3f& transform = object.transformation();
-      Eigen::Quaternionf q(transform.rotation());
-      const auto& translation = transform.translation();
+      std::vector<geometry_msgs::msg::TransformStamped> transforms;
+      for (const auto& object : objects) 
+      {
+        const Eigen::Affine3f& transform = object.transformation();
+        Eigen::Quaternionf q(transform.rotation());
+        const auto& translation = transform.translation();
 
-      geometry_msgs::msg::TransformStamped t;
+        geometry_msgs::msg::TransformStamped t;
 
-      t.header.stamp = this->get_clock()->now();
-      t.header.frame_id = frame_id;                     // No this needs to be set somwhow differently (same as pointcloud)
-      t.child_frame_id = object.name().c_str();
+        t.header.stamp = this->get_clock()->now();
+        t.header.frame_id = frame_id;                     // No this needs to be set somwhow differently (same as pointcloud)
+        t.child_frame_id = object.name().c_str();
 
-      t.transform.translation.x = translation.x();
-      t.transform.translation.y = translation.y();
-      t.transform.translation.z = translation.z();
+        t.transform.translation.x = translation.x();
+        t.transform.translation.y = translation.y();
+        t.transform.translation.z = translation.z();
 
-      t.transform.rotation.x = q.x();      
-      t.transform.rotation.y = q.y();
-      t.transform.rotation.z = q.z();
-      t.transform.rotation.w = q.w();
-
-      tf_broadcaster->sendTransform(t);
+        t.transform.rotation.x = q.x();      
+        t.transform.rotation.y = q.y();
+        t.transform.rotation.z = q.z();
+        t.transform.rotation.w = q.w();
+        transforms.push_back(t);
+      }
+      tf_broadcaster->sendTransform(transforms);
     }
 
 
