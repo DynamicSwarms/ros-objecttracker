@@ -34,8 +34,12 @@ using std::placeholders::_2;
 class ObjectTracker : public rclcpp::Node
 {
   public: 
-    ObjectTracker(const rclcpp::NodeOptions & options) : Node("object_tracker",options), latestPCL(new pcl::PointCloud<pcl::PointXYZ>)
+    ObjectTracker(const rclcpp::NodeOptions & options) 
+        : Node("object_tracker",options)
+        , latestPCL(new pcl::PointCloud<pcl::PointXYZ>)
+        , frame_id("world")
     {
+      std::int32_t broadcast_frequency = this->get_parameter("tfBroadcastRate").as_int();
       std::string pc2_topicName = this->get_parameter("pointCloud2TopicName").as_string();
       point_cloud_subscription = this->create_subscription<sensor_msgs::msg::PointCloud2>(
         pc2_topicName, 10, std::bind(&ObjectTracker::pc_callback, this, _1));
@@ -47,6 +51,10 @@ class ObjectTracker : public rclcpp::Node
                 std::chrono::milliseconds(100),
                 std::bind(&ObjectTracker::supervise_tracking, this));
 
+      int rate = (int)((1.0 / (double)broadcast_frequency) * 1000);
+      position_broadcast_timer = this->create_wall_timer(
+        std::chrono::milliseconds(rate),
+        std::bind(&ObjectTracker::broadcast_positions, this));
 
       add_object_service = this->create_service<object_tracker_interfaces::srv::AddTrackerObject>("~/add_object", std::bind(&ObjectTracker::add_object_call, this, _1, _2));
       remove_object_service = this->create_service<object_tracker_interfaces::srv::RemoveTrackerObject>("~/remove_object",std::bind(&ObjectTracker::remove_object_call, this, _1, _2));
@@ -63,17 +71,8 @@ class ObjectTracker : public rclcpp::Node
       pcl::PointCloud<pcl::PointXYZ>::Ptr markers(new pcl::PointCloud<pcl::PointXYZ>);
       pcl::fromROSMsg(*msg, *markers);
       pcl::fromROSMsg(*msg, *latestPCL); // Save latest point Cloud for checking in addObject
-
-      m_tracker->update(markers);
-
-      std::vector<libobjecttracker::Object> objects;
-      for (size_t i = 0; i < m_tracker->objects().size(); i++) {
-          if (m_tracker->objects()[i].lastTransformationValid())
-          {
-            objects.push_back(m_tracker->objects()[i]);
-          }          
-      }
-      sendPosesToTF(objects, msg->header.frame_id);
+      this->frame_id = msg->header.frame_id;
+      m_tracker->update(markers);     
     }
 
     void supervise_tracking()
@@ -94,6 +93,18 @@ class ObjectTracker : public rclcpp::Node
         msg.data = obj.name();
         tracking_lost_publisher->publish(msg);
       }
+    }
+
+    void broadcast_positions()
+    {
+      std::vector<libobjecttracker::Object> objects;
+      for (size_t i = 0; i < m_tracker->objects().size(); i++) {
+          if (m_tracker->objects()[i].lastTransformationValid())
+          {
+            objects.push_back(m_tracker->objects()[i]);
+          }          
+      }
+      sendPosesToTF(objects, this->frame_id);
     }
 
     void add_object_call(const std::shared_ptr<object_tracker_interfaces::srv::AddTrackerObject::Request> request,
@@ -246,13 +257,16 @@ class ObjectTracker : public rclcpp::Node
       RCLCPP_WARN(this->get_logger(),"%s", msg.c_str());
     }
 
-    
+    std::string frame_id;
+
     libobjecttracker::ObjectTracker* m_tracker; // non-owning pointer
     pcl::PointCloud<pcl::PointXYZ>::Ptr latestPCL;
 
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr point_cloud_subscription;
 
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
+    rclcpp::TimerBase::SharedPtr position_broadcast_timer; 
+
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr tracking_lost_publisher;
     rclcpp::TimerBase::SharedPtr tracking_supervisor; 
 
