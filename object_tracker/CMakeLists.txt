@@ -21,6 +21,7 @@ find_package(tf2)
 find_package(tf2_ros)
 
 find_package(object_tracker_interfaces REQUIRED)
+find_package(crazyflie_interfaces REQUIRED)
 
 
 add_executable(tracker src/tracker.cpp)
@@ -37,7 +38,8 @@ ament_target_dependencies(tracker
   pcl_conversions
   tf2
   tf2_ros
-  object_tracker_interfaces)
+  object_tracker_interfaces
+  crazyflie_interfaces)
 
 
 
