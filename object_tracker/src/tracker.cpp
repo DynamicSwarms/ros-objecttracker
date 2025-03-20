@@ -123,9 +123,10 @@ class ObjectTracker : public rclcpp::Node
                                 std::shared_ptr<object_tracker_interfaces::srv::AddTrackerObject::Response> response)
     {
       // Checks if obj with ame tf_name already exists, will not add object with duplicate names
-      for (auto obj :  m_tracker->objects()) {
-        if (obj.name() == request->tf_name.data) return; // Returns success = false
-      }
+      //for (auto obj :  m_tracker->objects()) {
+      //  if (obj.name() == request->tf_name.data) return; // Returns success = false
+      //}
+
       // Checks if there is a point in last point cloud which satisfies max intial deviation constraint
       bool deviation_ok = false;
       for (auto point : latestPCL->points) {
@@ -145,6 +146,7 @@ class ObjectTracker : public rclcpp::Node
       float w = request->initial_pose.orientation.w;    
       initialPose.rotate(Eigen::Quaternionf(w,x, y, z));
 
+      m_tracker->removeObject(request->tf_name.data); // Try to remove object
       m_tracker->addObject(libobjecttracker::Object(request->marker_configuration_idx, request->dynamics_configuration_idx, initialPose, request->tf_name.data));
       response->success = true;
     }
