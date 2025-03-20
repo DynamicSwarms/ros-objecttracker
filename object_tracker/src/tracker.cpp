@@ -293,7 +293,7 @@ class ObjectTracker : public rclcpp::Node
     void logWarn(
       const std::string& msg)
     {
-      RCLCPP_WARN(this->get_logger(),"%s", msg.c_str());
+      RCLCPP_WARN(this->get_logger(),"%s", msg.empty() ? "" : msg.substr(0, msg.size() - 1).c_str()); // Remove \n or \r added by the tracker
     }
 
     std::string frame_id;
