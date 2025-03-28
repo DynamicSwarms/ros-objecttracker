@@ -42,6 +42,7 @@ class ObjectTracker : public rclcpp::Node
         : Node("object_tracker",options)
         , latestPCL(new pcl::PointCloud<pcl::PointXYZ>)
         , frame_id("world")
+        , last_valid_timeout(0.25)
     {
       this->use_tf = this->get_parameter("use_tf").as_bool();
       std::int32_t broadcast_frequency = this->get_parameter("tfBroadcastRate").as_int();
@@ -100,6 +101,9 @@ class ObjectTracker : public rclcpp::Node
         auto msg = std_msgs::msg::String();
         msg.data = obj.name();
         tracking_lost_publisher->publish(msg);
+        std::stringstream sstr;
+        sstr << "Lost tracking for object " << obj.name() << std::endl;
+        RCLCPP_WARN(this->get_logger(),"%s", sstr.str().c_str());
       }
     }
 
@@ -107,7 +111,7 @@ class ObjectTracker : public rclcpp::Node
     {
       std::vector<libobjecttracker::Object> objects;
       for (size_t i = 0; i < m_tracker->objects().size(); i++) {
-          if (m_tracker->objects()[i].lastTransformationValid())
+          if (m_tracker->objects()[i].timeSinceLastValidTransform() < last_valid_timeout)
           {
             objects.push_back(m_tracker->objects()[i]);
           }          
@@ -297,6 +301,8 @@ class ObjectTracker : public rclcpp::Node
     {
       RCLCPP_WARN(this->get_logger(),"%s", msg.empty() ? "" : msg.substr(0, msg.size() - 1).c_str()); // Remove \n or \r added by the tracker
     }
+
+    double last_valid_timeout;
 
     std::string frame_id;
     bool use_tf; 
