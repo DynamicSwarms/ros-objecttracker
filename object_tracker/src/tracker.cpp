@@ -43,12 +43,16 @@ class ObjectTracker : public rclcpp::Node
         , latestPCL(new pcl::PointCloud<pcl::PointXYZ>)
         , frame_id("world")
         , last_valid_timeout(0.25)
-    {
+    { 
+      this->declare_parameter<double>("latency_threshold", 0.035);
+
       this->use_tf = this->get_parameter("use_tf").as_bool();
       std::int32_t broadcast_frequency = this->get_parameter("tfBroadcastRate").as_int();
       std::string pc2_topicName = this->get_parameter("pointCloud2TopicName").as_string();
       point_cloud_subscription = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        pc2_topicName, 10, std::bind(&ObjectTracker::pc_callback, this, _1));
+        pc2_topicName,
+        rclcpp::QoS(2).reliability(rclcpp::ReliabilityPolicy::BestEffort), 
+        std::bind(&ObjectTracker::pc_callback, this, _1));
 
       initializeTrackerFromParameters();
 
@@ -77,11 +81,18 @@ class ObjectTracker : public rclcpp::Node
   private:    
     void pc_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) 
     {
+      auto start_time = std::chrono::steady_clock::now();
       pcl::PointCloud<pcl::PointXYZ>::Ptr markers(new pcl::PointCloud<pcl::PointXYZ>);
       pcl::fromROSMsg(*msg, *markers);
       pcl::fromROSMsg(*msg, *latestPCL); // Save latest point Cloud for checking in addObject
       this->frame_id = msg->header.frame_id;
       m_tracker->update(markers);     
+      auto end_time = std::chrono::steady_clock::now(); // End timing
+      std::chrono::duration<double> elapsed = end_time - start_time;
+      if (elapsed.count() > this->get_parameter("latency_threshold").as_double())
+      {
+        RCLCPP_WARN(this->get_logger(), "Tracking latency high: %.4f seconds", elapsed.count());
+      }
     }
 
     void supervise_tracking()
