@@ -229,7 +229,7 @@ class ObjectTracker : public rclcpp::Node
 
         pose.pose.position.x = translation.x();
         pose.pose.position.y = translation.y();
-        pose.pose.position.z = translation.z();
+        pose.pose.position.z = translation.z() - 0.015; // marker sits higher than origin 
 
         pose.pose.orientation.x = q.x();      
         pose.pose.orientation.y = q.y();
