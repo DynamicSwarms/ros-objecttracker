@@ -182,6 +182,7 @@ class ObjectTracker : public rclcpp::Node
     void remove_all_objects_call(const std::shared_ptr<std_srvs::srv::Trigger::Request> request, 
                                        std::shared_ptr<std_srvs::srv::Trigger::Response> response)
     {
+      (void) request;
       response->success = m_tracker->removeAllObjects();
     }
 
@@ -216,6 +217,8 @@ class ObjectTracker : public rclcpp::Node
     void sendPosesToCF(const std::vector<libobjecttracker::Object>& objects, const std::string frame_id) 
     {
       auto posearray = crazyflie_interfaces::msg::PoseStampedArray();
+      posearray.header.stamp = this->get_clock()->now();
+      posearray.header.frame_id = frame_id;
       for (const auto& object : objects) 
       {
         const Eigen::Affine3f& transform = object.transformation();
@@ -313,14 +316,15 @@ class ObjectTracker : public rclcpp::Node
       RCLCPP_WARN(this->get_logger(),"%s", msg.empty() ? "" : msg.substr(0, msg.size() - 1).c_str()); // Remove \n or \r added by the tracker
     }
 
-    double last_valid_timeout;
-
+  private:
+    pcl::PointCloud<pcl::PointXYZ>::Ptr latestPCL;
     std::string frame_id;
+    double last_valid_timeout;
+   
     bool use_tf; 
 
     libobjecttracker::ObjectTracker* m_tracker; // non-owning pointer
-    pcl::PointCloud<pcl::PointXYZ>::Ptr latestPCL;
-
+    
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr point_cloud_subscription;
 
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
