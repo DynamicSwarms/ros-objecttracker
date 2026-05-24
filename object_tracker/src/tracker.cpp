@@ -19,12 +19,11 @@
 
 // TF Broadcasting
 #include "geometry_msgs/msg/transform_stamped.hpp"
-#include "tf2/LinearMath/Quaternion.h"
-#include "tf2_ros/transform_broadcaster.h"
+#include "tf2_ros/transform_broadcaster.hpp"
 
 //Cf Broadcasting
 #include "geometry_msgs/msg/pose_stamped.hpp"
-#include "crazyflie_interfaces/msg/pose_stamped_array.hpp"
+#include "crazyflie_interfaces/msg/pose_named_array.hpp"
 
 // Add/Remove Services
 #include "object_tracker_interfaces/srv/add_tracker_object.hpp"
@@ -73,7 +72,7 @@ class ObjectTracker : public rclcpp::Node
       if (this->use_tf) {
         tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
       } else {
-        cf_broadcaster = this->create_publisher<crazyflie_interfaces::msg::PoseStampedArray>("/cf_positions", 10);
+        cf_broadcaster = this->create_publisher<crazyflie_interfaces::msg::PoseNamedArray>("/cf_positions", 10);
       }
     }
 
@@ -216,7 +215,7 @@ class ObjectTracker : public rclcpp::Node
 
     void sendPosesToCF(const std::vector<libobjecttracker::Object>& objects, const std::string frame_id) 
     {
-      auto posearray = crazyflie_interfaces::msg::PoseStampedArray();
+      auto posearray = crazyflie_interfaces::msg::PoseNamedArray();
       posearray.header.stamp = this->get_clock()->now();
       posearray.header.frame_id = frame_id;
       for (const auto& object : objects) 
@@ -225,10 +224,11 @@ class ObjectTracker : public rclcpp::Node
         Eigen::Quaternionf q(transform.rotation());
         const auto& translation = transform.translation();
 
-        geometry_msgs::msg::PoseStamped pose;
+        crazyflie_interfaces::msg::PoseNamed pose;
 
         pose.header.stamp = this->get_clock()->now();
         pose.header.frame_id = object.name().c_str();
+        pose.rotation_valid = false; // TODO: Currently tracker only supports position
 
         pose.pose.position.x = translation.x();
         pose.pose.position.y = translation.y();
@@ -328,7 +328,7 @@ class ObjectTracker : public rclcpp::Node
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr point_cloud_subscription;
 
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
-    rclcpp::Publisher<crazyflie_interfaces::msg::PoseStampedArray>::SharedPtr cf_broadcaster; 
+    rclcpp::Publisher<crazyflie_interfaces::msg::PoseNamedArray>::SharedPtr cf_broadcaster; 
     rclcpp::TimerBase::SharedPtr position_broadcast_timer; 
 
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr tracking_lost_publisher;

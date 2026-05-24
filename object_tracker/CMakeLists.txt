@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.10)
 project(object_tracker)
 
 add_subdirectory(dependencies/libobjecttracker)
@@ -30,16 +30,16 @@ target_include_directories(tracker PUBLIC
   $<INSTALL_INTERFACE:include>)
 target_compile_features(tracker PUBLIC c_std_99 cxx_std_17)  # Require C99 and C++17
 
-ament_target_dependencies(tracker
-  rclcpp
-  std_msgs
-  std_srvs
-  sensor_msgs
-  pcl_conversions
-  tf2
-  tf2_ros
-  object_tracker_interfaces
-  crazyflie_interfaces)
+target_link_libraries(tracker
+  rclcpp::rclcpp
+  std_msgs::std_msgs
+  std_srvs::std_srvs
+  sensor_msgs::sensor_msgs
+  pcl_conversions::pcl_conversions
+  tf2::tf2
+  tf2_ros::tf2_ros
+  object_tracker_interfaces::object_tracker_interfaces
+  crazyflie_interfaces::crazyflie_interfaces)
 
 
 
