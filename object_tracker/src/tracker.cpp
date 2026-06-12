@@ -226,8 +226,9 @@ class ObjectTracker : public rclcpp::Node
 
         crazyflie_interfaces::msg::PoseNamed pose;
 
+        pose.name = object.name().c_str();
         pose.header.stamp = this->get_clock()->now();
-        pose.header.frame_id = object.name().c_str();
+        pose.header.frame_id = "world";
         pose.rotation_valid = false; // TODO: Currently tracker only supports position
 
         pose.pose.position.x = translation.x();
