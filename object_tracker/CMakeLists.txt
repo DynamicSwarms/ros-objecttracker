@@ -24,7 +24,10 @@ find_package(object_tracker_interfaces REQUIRED)
 find_package(crazyflie_interfaces REQUIRED)
 
 
-add_executable(tracker src/tracker.cpp)
+add_executable(tracker
+  src/tracker.cpp
+  src/tracker_logger.cpp
+)
 target_include_directories(tracker PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)

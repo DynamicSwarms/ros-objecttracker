@@ -2,6 +2,8 @@
   ros__parameters:
     use_tf: true # This ensures that cf is used not tf
     pointCloud2TopicName: "pointCloud"
+    # One JSON object per point-cloud callback. Set to "" to disable logging.
+    # callback_log_path: "/tmp/object_tracker_callbacks.jsonl"
     tfBroadcastRate: 20 # Hz
     numMarkerConfigurations: 5
     markerConfigurations:
@@ -51,4 +53,3 @@
         maxRoll: 1.4
         maxPitch: 1.4
         maxFitnessScore: 0.001
-

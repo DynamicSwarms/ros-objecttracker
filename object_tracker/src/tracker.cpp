@@ -4,6 +4,7 @@
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <sstream>
 #include <string>
 
 
@@ -29,6 +30,7 @@
 #include "object_tracker_interfaces/srv/add_tracker_object.hpp"
 #include "object_tracker_interfaces/srv/remove_tracker_object.hpp"
 #include "std_srvs/srv/trigger.hpp"
+#include "object_tracker/tracker_logger.hpp"
 
 using namespace std::chrono_literals;
 using std::placeholders::_1;
@@ -44,6 +46,13 @@ class ObjectTracker : public rclcpp::Node
         , last_valid_timeout(0.25)
     { 
       this->declare_parameter<double>("latency_threshold", 0.035);
+
+      if (!this->has_parameter("callback_log_path")) {
+        this->declare_parameter<std::string>("callback_log_path", "");
+      }
+      const std::string callback_log_path =
+        this->get_parameter("callback_log_path").as_string();
+      tracker_logger.open(callback_log_path, this->get_logger());
 
       this->use_tf = this->get_parameter("use_tf").as_bool();
       std::int32_t broadcast_frequency = this->get_parameter("tfBroadcastRate").as_int();
@@ -85,7 +94,8 @@ class ObjectTracker : public rclcpp::Node
       pcl::fromROSMsg(*msg, *markers);
       pcl::fromROSMsg(*msg, *latestPCL); // Save latest point Cloud for checking in addObject
       this->frame_id = msg->header.frame_id;
-      m_tracker->update(markers);     
+      m_tracker->update(markers);
+      tracker_logger.log_callback(*msg, *markers, *m_tracker);
       auto end_time = std::chrono::steady_clock::now(); // End timing
       std::chrono::duration<double> elapsed = end_time - start_time;
       if (elapsed.count() > this->get_parameter("latency_threshold").as_double())
@@ -321,6 +331,7 @@ class ObjectTracker : public rclcpp::Node
     pcl::PointCloud<pcl::PointXYZ>::Ptr latestPCL;
     std::string frame_id;
     double last_valid_timeout;
+    object_tracker::TrackerLogger tracker_logger;
    
     bool use_tf; 
 
