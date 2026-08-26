@@ -2,27 +2,31 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <iomanip>
 #include <ios>
+#include <stdexcept>
 
+#include <Eigen/Geometry>
 #include <rclcpp/logging.hpp>
 
 namespace object_tracker
 {
 
-void TrackerLogger::open(const std::string & path, const rclcpp::Logger & logger)
+TrackerLogger::TrackerLogger(bool enabled)
 {
-  if (path.empty()) {
+  if (!enabled) {
     return;
   }
 
-  callback_log_.open(path, std::ios::out | std::ios::trunc);
+  const auto log_directory = rclcpp::get_log_directory() / "object_tracker";
+  std::filesystem::create_directories(log_directory);
+  const auto log_file = log_directory / "object_tracker_log.log";
+
+  callback_log_.open(log_file, std::ios::out | std::ios::trunc);
   if (!callback_log_.is_open()) {
-    RCLCPP_ERROR(logger, "Could not open tracker callback log: %s", path.c_str());
-    return;
+    throw std::runtime_error("Failed to open tracker log file");
   }
-
-  RCLCPP_INFO(logger, "Writing tracker callback log to %s", path.c_str());
 }
 
 void TrackerLogger::log_callback(
@@ -52,22 +56,29 @@ void TrackerLogger::log_callback(
   }
 
   callback_log_ << "],\"objects\":[";
-  const auto & objects = tracker.objects();
+  const auto objects = tracker.objects();
   for (std::size_t i = 0; i < objects.size(); ++i) {
     if (i != 0) {
       callback_log_ << ',';
     }
-    const auto & object = objects[i];
-    const auto & position = object.transformation().translation();
-    callback_log_ << "{\"name\":\"" << object.name()
+    const auto* object = objects[i];
+    const auto & position = object->transformation().translation();
+    callback_log_ << "{\"name\":\"" << object->name()
                   << "\",\"valid\":"
-                  << (object.lastTransformationValid() ? "true" : "false")
+                  << (object->lastTransformationValid() ? "true" : "false")
                   << ",\"tracking_valid\":"
-                  << (tracker.trackingValid(object) ? "true" : "false")
+                  << (tracker.trackingValid(*object) ? "true" : "false")
                   << ",\"seconds_since_valid\":"
-                  << object.timeSinceLastValidTransform()
+                  << object->timeSinceLastValidUpdate().count()
                   << ",\"position\":[" << position.x() << ',' << position.y()
-                  << ',' << position.z() << "]}";
+                  << ',' << position.z() << ']';
+    if (object->orientationValid()) {
+      const Eigen::Quaternionf orientation(object->transformation().linear());
+      callback_log_ << ",\"orientation\":[" << orientation.x() << ','
+                    << orientation.y() << ',' << orientation.z() << ','
+                    << orientation.w() << ']';
+    }
+    callback_log_ << '}';
   }
   callback_log_ << "]}\n";
   callback_log_.flush();

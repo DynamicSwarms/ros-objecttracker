@@ -3,8 +3,8 @@
 Packages libobjecttracker as Ros2 Node. 
 Objects can dynamically be added and removed via services.
 
-It is only possible to either single marker track or multi marker track. 
-As soon as one object is added with single marker tracking everything is switched to this mode.
+Single-marker and multi-marker objects can be tracked side by side. Both
+trackers read the same point cloud and do not reserve markers from each other.
 
 # Usage
 
@@ -27,10 +27,16 @@ std_msgs/String tf_name             # The name of the object
 uint8 marker_configuration_idx      # The index of to be used marker config from yaml
 uint8 dynamics_configuration_idx    # The index of to be used dynamics config from yaml
 geometry_msgs/Pose initial_pose     # The initial position of the object
-float32 max_initial_deviation       # If no point is in this deviation distance in last point cloud object wont get added
+float32 max_initial_deviation       # Maximum distance accepted during initial acquisition
+float32 initialization_timeout     # Seconds allowed for initial acquisition
 ---
-bool success                        # If add succeded this will be true
+bool success                        # True after the first valid tracking update
 ~~~
+
+The add service uses a deferred response. A valid request registers the object
+and waits for a matching point-cloud observation. It returns false if the
+configuration is invalid, the object is removed or updated before acquisition,
+or initialization times out.
 # RemoveTrackerObject
 ~~~text
 std_msgs/String tf_name             # The object to be removed

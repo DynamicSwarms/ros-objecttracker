@@ -10,6 +10,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 
 find_package(rclcpp REQUIRED) # CPP RosNode needs this
+find_package(rcl_interfaces REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
@@ -18,10 +19,10 @@ find_package(sensor_msgs REQUIRED)
 find_package(PCL REQUIRED)  # for libobjecttracker
 find_package(pcl_conversions REQUIRED)
 find_package(tf2)
+find_package(tf2_eigen REQUIRED)
 find_package(tf2_ros)
 
 find_package(object_tracker_interfaces REQUIRED)
-find_package(crazyflie_interfaces REQUIRED)
 
 
 add_executable(tracker
@@ -35,14 +36,15 @@ target_compile_features(tracker PUBLIC c_std_99 cxx_std_17)  # Require C99 and C
 
 target_link_libraries(tracker
   rclcpp::rclcpp
+  ${rcl_interfaces_TARGETS}
   std_msgs::std_msgs
   std_srvs::std_srvs
   sensor_msgs::sensor_msgs
   pcl_conversions::pcl_conversions
   tf2::tf2
+  tf2_eigen::tf2_eigen
   tf2_ros::tf2_ros
-  object_tracker_interfaces::object_tracker_interfaces
-  crazyflie_interfaces::crazyflie_interfaces)
+  object_tracker_interfaces::object_tracker_interfaces)
 
 
 

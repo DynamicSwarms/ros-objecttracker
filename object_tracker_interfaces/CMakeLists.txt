@@ -13,12 +13,15 @@ find_package(ament_cmake REQUIRED)
 
 
 find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/PositionNamed.msg"
+  "msg/PositionNamedArray.msg"
   "srv/AddTrackerObject.srv"
   "srv/RemoveTrackerObject.srv"
-  DEPENDENCIES geometry_msgs
+  DEPENDENCIES geometry_msgs std_msgs
 )
 
 if(BUILD_TESTING)
