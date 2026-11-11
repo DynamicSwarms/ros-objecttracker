@@ -15,6 +15,7 @@ find_package(rclcpp_components REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 
 find_package(PCL REQUIRED)  # for libobjecttracker
 find_package(pcl_conversions REQUIRED)
@@ -28,6 +29,7 @@ find_package(object_tracker_interfaces REQUIRED)
 add_executable(tracker
   src/tracker.cpp
   src/tracker_logger.cpp
+  src/tracker_diagnostics.cpp
 )
 target_include_directories(tracker PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -40,6 +42,7 @@ target_link_libraries(tracker
   std_msgs::std_msgs
   std_srvs::std_srvs
   sensor_msgs::sensor_msgs
+  ${diagnostic_msgs_TARGETS}
   pcl_conversions::pcl_conversions
   tf2::tf2
   tf2_eigen::tf2_eigen
