@@ -99,7 +99,15 @@ class ObjectTracker : public rclcpp::Node
       auto start_time = std::chrono::steady_clock::now();
      
       pcl::PointCloud<pcl::PointXYZ>::Ptr markers(new pcl::PointCloud<pcl::PointXYZ>);
-      pcl::fromROSMsg(*msg, *markers);
+      // pcl::fromROSMsg indexes data[0] even when the cloud has no points.
+      // Still update the tracker below so empty frames advance tracking time.
+      if (msg->width != 0 && msg->height != 0) {
+        if (msg->data.empty()) {
+          RCLCPP_WARN(this->get_logger(), "Ignoring point cloud with points but no data");
+          return;
+        }
+        pcl::fromROSMsg(*msg, *markers);
+      }
       this->frame_id = msg->header.frame_id;
       const rclcpp::Time update_stamp(msg->header.stamp);
       libobjecttracker::TrackerDuration dt = libobjecttracker::TrackerDuration::zero();
