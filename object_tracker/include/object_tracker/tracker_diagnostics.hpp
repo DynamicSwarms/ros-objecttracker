@@ -3,8 +3,10 @@
 #include <chrono>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
+#include <libobjecttracker/object.hpp>
 #include <rclcpp/rclcpp.hpp>
 
 namespace object_tracker {
@@ -14,6 +16,7 @@ struct DiagnosticsNodeInterfaces
   rclcpp::node_interfaces::NodeBaseInterface::SharedPtr base;
   rclcpp::node_interfaces::NodeClockInterface::SharedPtr clock;
   rclcpp::node_interfaces::NodeTopicsInterface::SharedPtr topics;
+  rclcpp::node_interfaces::NodeLoggingInterface::SharedPtr logging;
 };
 
 struct DiagnosticsConfig
@@ -41,12 +44,16 @@ class TrackerDiagnostics
 public:
   using Clock = std::chrono::steady_clock;
   TrackerDiagnostics(DiagnosticsNodeInterfaces interfaces, DiagnosticsConfig config);
-  void record_frame(Clock::time_point started, bool usable, bool empty, bool backwards, bool repeated = false);
-  void record_invalid_object_frames(uint64_t count);
+  void record_frame(
+    Clock::time_point started,
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr & markers,
+    const std::vector<const libobjecttracker::Object*> & objects,
+    bool backwards = false, bool repeated = false);
   void record_acquisition();
   void record_loss();
   void record_timeout();
   void record_failure();
+  void check_input_timeout();
   void publish(const TrackerSnapshot & snapshot);
 
 private:
@@ -60,6 +67,7 @@ private:
   uint64_t m_acquired{0}, m_lost{0}, m_timed_out{0}, m_failures{0};
   bool m_interval_failure{false};
   bool m_interval_loss{false};
+  bool m_input_stale{false};
 };
 
 }  // namespace object_tracker

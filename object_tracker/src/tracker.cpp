@@ -1,6 +1,8 @@
 #define BOOST_BIND_NO_PLACEHOLDERS
 #include <algorithm>
 #include <cstdio>
+#include <cstddef>
+#include <cstdint>
 #include <cmath>
 #include <chrono>
 #include <functional>
@@ -57,7 +59,7 @@ class ObjectTracker : public rclcpp::Node
       object_tracker::DiagnosticsConfig diagnostics_config;
 
       get_parameter_or("lastValidTimeout", last_valid_timeout_seconds, 0.25);
-      get_parameter_or("latencyThreshold", m_processing_warn_seconds, 0.035);
+      get_parameter_or("latencyThreshold", diagnostics_config.processing_warn, 0.035);
       get_parameter_or("logEnabled", log_enabled, false);
       get_parameter_or("publishSingleMarkerObjectsToTf", m_publish_single_marker_objects_to_tf, false);
       get_parameter_or("tfBroadcastRate", broadcast_frequency, std::int32_t(20));
@@ -75,11 +77,10 @@ class ObjectTracker : public rclcpp::Node
       m_tracker_logger = std::make_unique<object_tracker::TrackerLogger>(log_enabled);
 
       diagnostics_config.observation_error = m_last_valid_timeout.count();
-      diagnostics_config.processing_warn = m_processing_warn_seconds;
       m_diagnostics = std::make_unique<object_tracker::TrackerDiagnostics>(
         object_tracker::DiagnosticsNodeInterfaces{
           get_node_base_interface(), get_node_clock_interface(),
-          get_node_topics_interface()}, diagnostics_config);
+          get_node_topics_interface(), get_node_logging_interface()}, diagnostics_config);
       initializeTrackerFromParameters();
       m_diagnostics_timer = this->create_wall_timer(
         1s, std::bind(&ObjectTracker::publish_diagnostics, this));
@@ -97,9 +98,9 @@ class ObjectTracker : public rclcpp::Node
       if (broadcast_frequency <= 0 || broadcast_frequency > 1000) {
         throw std::invalid_argument("tfBroadcastRate must be between 1 and 1000 Hz");
       }
-      int rate = (int)((1.0 / (double)broadcast_frequency) * 1000);
+      const std::chrono::nanoseconds period(1'000'000'000LL / broadcast_frequency);
       m_position_broadcast_timer = this->create_wall_timer(
-        std::chrono::milliseconds(rate),
+        period,
         std::bind(&ObjectTracker::broadcast_positions, this));
 
       m_add_object_service = this->create_service<AddObjectService>(
@@ -119,50 +120,78 @@ class ObjectTracker : public rclcpp::Node
 
     
   private:    
-    void pc_callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) 
+    struct FrameTiming
     {
-      auto start_time = std::chrono::steady_clock::now();
-     
+      libobjecttracker::TrackerDuration dt{libobjecttracker::TrackerDuration::zero()};
+      bool backwards{false};
+      bool repeated{false};
+    };
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr convert_markers(
+      const sensor_msgs::msg::PointCloud2& msg)
+    {
       pcl::PointCloud<pcl::PointXYZ>::Ptr markers(new pcl::PointCloud<pcl::PointXYZ>);
-      // pcl::fromROSMsg indexes data[0] even when the cloud has no points.
-      // Still update the tracker below so empty frames advance tracking time.
-      if (msg->width != 0 && msg->height != 0) {
-        if (msg->data.empty()) {
-          m_diagnostics->record_frame(start_time, false, false, false);
-          RCLCPP_WARN(this->get_logger(), "Ignoring point cloud with points but no data");
-          return;
-        }
-        pcl::fromROSMsg(*msg, *markers);
+       if (msg.width == 0 || msg.height == 0) {
+        return markers;
       }
-      this->m_frame_id = msg->header.frame_id;
-      const rclcpp::Time update_stamp(msg->header.stamp);
-      libobjecttracker::TrackerDuration dt = libobjecttracker::TrackerDuration::zero();
-      bool backwards = false;
-      const bool repeated = m_last_update_stamp && update_stamp == *m_last_update_stamp;
+      if (msg.data.empty() ||
+          msg.point_step == 0 ||
+          msg.width > msg.row_step / msg.point_step ||
+          msg.height > msg.data.size() / msg.row_step)
+      {
+        RCLCPP_WARN(this->get_logger(), "Ignoring point cloud with invalid data size or strides");
+        return nullptr;
+      }
+      pcl::fromROSMsg(msg, *markers);
+      return markers;
+    }
+
+    void pc_callback(
+      const std::shared_ptr<sensor_msgs::msg::PointCloud2> msg)
+    {
+      const auto start_time = std::chrono::steady_clock::now();
+      const pcl::PointCloud<pcl::PointXYZ>::Ptr markers = convert_markers(*msg);
+ 
+      if (!markers) {
+        record_tracking_frame(msg, markers, start_time, FrameTiming{});
+        return;
+      }
+
+      const FrameTiming timing = calculate_frame_timing(msg->header.stamp);
+
+      m_frame_id = msg->header.frame_id;
+      m_last_update_stamp = rclcpp::Time(msg->header.stamp);
+      m_tracker->update(timing.dt, markers);
+
+      record_tracking_frame(msg, markers, start_time, timing);
+    }
+
+    FrameTiming calculate_frame_timing(const builtin_interfaces::msg::Time& stamp)
+    {
+      const rclcpp::Time update_stamp(stamp);
+      FrameTiming timing;
+      timing.repeated = m_last_update_stamp && update_stamp == *m_last_update_stamp;
       if (m_last_update_stamp) {
         const rclcpp::Duration elapsed = update_stamp - *m_last_update_stamp;
         if (elapsed < rclcpp::Duration::from_seconds(0.0)) {
-          backwards = true;
+          timing.backwards = true;
           RCLCPP_WARN(this->get_logger(), "Point-cloud timestamp moved backwards");
         } else {
-          dt = elapsed.to_chrono<libobjecttracker::TrackerDuration>();
+          timing.dt = elapsed.to_chrono<libobjecttracker::TrackerDuration>();
         }
       }
-      m_last_update_stamp = update_stamp;
-      m_tracker->update(dt, markers);
-      const auto objects = m_tracker->objects();
-      m_diagnostics->record_invalid_object_frames(std::count_if(
-        objects.begin(), objects.end(),
-        [](const auto* object) {return !object->lastTransformationValid();}));
-      m_tracker_logger->log_callback(*msg, *markers, *m_tracker);
-     
-      m_diagnostics->record_frame(start_time, true, markers->empty(), backwards, repeated);
-      auto end_time = std::chrono::steady_clock::now(); // End timing
-      std::chrono::duration<double> elapsed = end_time - start_time;
-      if (elapsed.count() > m_processing_warn_seconds)
-      {
-        RCLCPP_WARN(this->get_logger(), "Tracking latency high: %.4f seconds", elapsed.count());
-      }
+      return timing;
+    }
+
+    void record_tracking_frame(
+      const std::shared_ptr<sensor_msgs::msg::PointCloud2>& msg,
+      const pcl::PointCloud<pcl::PointXYZ>::Ptr& markers,
+      std::chrono::steady_clock::time_point start_time,
+      const FrameTiming& timing)
+    {
+      m_tracker_logger->log_callback(msg, markers, *m_tracker);
+      m_diagnostics->record_frame(
+        start_time, markers, m_tracker->objects(), timing.backwards, timing.repeated);
     }
 
     void publish_diagnostics()
@@ -186,6 +215,7 @@ class ObjectTracker : public rclcpp::Node
 
     void supervise_tracking()
     {
+      m_diagnostics->check_input_timeout();
       m_tracker->removeStaleObjects();
     }
 
@@ -205,14 +235,13 @@ class ObjectTracker : public rclcpp::Node
         }
       }
 
-      if (this->m_publish_single_marker_objects_to_tf) {
+      if (m_publish_single_marker_objects_to_tf) {
         multi_marker_objects.insert(
-          multi_marker_objects.end(), single_marker_objects.begin(),
-          single_marker_objects.end());
-        sendPosesToTF(multi_marker_objects, this->m_frame_id);
+          multi_marker_objects.end(), single_marker_objects.begin(), single_marker_objects.end());
+        sendPosesToTF(multi_marker_objects, m_frame_id);
       } else {
-        sendPosesToTF(multi_marker_objects, this->m_frame_id);
-        sendNamedPositions(single_marker_objects, this->m_frame_id);
+        sendPosesToTF(multi_marker_objects, m_frame_id);
+        sendNamedPositions(single_marker_objects, m_frame_id);
       }
     }
 
@@ -232,9 +261,7 @@ class ObjectTracker : public rclcpp::Node
             service->send_response(*request_header, response);
           } catch (const std::exception& exception) {
             m_diagnostics->record_failure();
-            RCLCPP_WARN(
-              this->get_logger(), "Could not send add-object response: %s",
-              exception.what());
+            RCLCPP_WARN(get_logger(), "Could not send add-object response: %s", exception.what());
           }
         };
 
@@ -284,8 +311,7 @@ class ObjectTracker : public rclcpp::Node
       std::vector<geometry_msgs::msg::TransformStamped> transforms;
       for (const auto* object : objects)
       {
-        auto transform = tf2::eigenToTransform(
-          object->transformation().cast<double>());
+        auto transform = tf2::eigenToTransform(object->transformation().cast<double>());
         transform.header.stamp = lastValidStamp(*object);
         transform.header.frame_id = parent_frame_id;
         transform.child_frame_id = object->name();
@@ -313,8 +339,7 @@ class ObjectTracker : public rclcpp::Node
         position.name = object->name();
         position.header = position_array.header;
         position.header.stamp = lastValidStamp(*object);
-        position.position = tf2::toMsg(
-          Eigen::Vector3d(translation.cast<double>()));
+        position.position = tf2::toMsg(Eigen::Vector3d(translation.cast<double>()));
         position_array.positions.push_back(position);
       }
       m_position_broadcaster->publish(position_array);
@@ -324,17 +349,19 @@ class ObjectTracker : public rclcpp::Node
       const libobjecttracker::Object& object) const
     {
       if (!m_last_update_stamp) {
-        return this->get_clock()->now();
+        return static_cast<builtin_interfaces::msg::Time>(get_clock()->now());
       }
-      return *m_last_update_stamp -
-        rclcpp::Duration(object.timeSinceLastValidUpdate());
+      const rclcpp::Duration age(object.timeSinceLastValidUpdate());
+      if (age.nanoseconds() > m_last_update_stamp->nanoseconds()) {
+        return builtin_interfaces::msg::Time{};
+      }
+      return static_cast<builtin_interfaces::msg::Time>(*m_last_update_stamp - age);
     }
 
 
     /**
     * Reads Ros Parameters and build m_tracker from it.
     * Reads markerConfigurations and dynamicsConfigurations (defined in YAML File)
-    * Initializes with no object at startup
     */
     void initializeTrackerFromParameters() 
     {
@@ -370,14 +397,10 @@ class ObjectTracker : public rclcpp::Node
         auto msg = std_msgs::msg::String();
         msg.data = object.name();
         m_tracking_lost_publisher->publish(msg);
-        RCLCPP_WARN(
-          this->get_logger(), "Lost tracking for object '%s'",
-          object.name().c_str());
+        RCLCPP_WARN(get_logger(), "Lost tracking for object '%s'", object.name().c_str());
       } else 
       {
-        RCLCPP_WARN(
-          this->get_logger(), "Unknown tracking event for object '%s'",
-          object.name().c_str());
+        RCLCPP_WARN(get_logger(), "Unknown tracking event for object '%s'", object.name().c_str());
       }
     }
 
@@ -416,11 +439,15 @@ class ObjectTracker : public rclcpp::Node
           paramName.str("");
           paramName << "markerConfigurations." << i << ".offset";
           std::vector<double> offset = this->get_parameter(paramName.str()).as_double_array();
+          if (offset.size() != 3)
+            throw std::invalid_argument(paramName.str() + " must contain exactly 3 coordinates");
           
           for (int j = 0; j < numPoints; j++) {
             paramName.str("");
             paramName << "markerConfigurations." << i << ".points." << j;
-            std::vector<double> points = this->get_parameter(paramName.str()).as_double_array();  
+            std::vector<double> points = this->get_parameter(paramName.str()).as_double_array();
+            if (points.size() != 3)
+              throw std::invalid_argument(paramName.str() + " must contain exactly 3 coordinates");
             markerConfigurations.back()->push_back(pcl::PointXYZ(points[0] + offset[0], points[1] + offset[1], points[2] + offset[2]));
           }
           
@@ -430,9 +457,12 @@ class ObjectTracker : public rclcpp::Node
     void readDynamicsConfigurations(
       std::vector<libobjecttracker::DynamicsConfiguration>& dynamicsConfigurations)
     {
-      int numDynamicsConfigurations = this->get_parameter("numDynamicsConfigurations").as_int();
-      dynamicsConfigurations.resize(numDynamicsConfigurations);
-      for (int i = 0; i < numDynamicsConfigurations; i++) {
+      const std::int64_t numDynamicsConfigurations =
+        this->get_parameter("numDynamicsConfigurations").as_int();
+      if (numDynamicsConfigurations < 0)
+        throw std::invalid_argument("numDynamicsConfigurations must be nonnegative");
+      dynamicsConfigurations.resize(static_cast<std::size_t>(numDynamicsConfigurations));
+      for (std::size_t i = 0; i < dynamicsConfigurations.size(); i++) {
         std::stringstream paramName;
         paramName << "dynamicsConfigurations." << i;
         dynamicsConfigurations[i].maxXVelocity = this->get_parameter(paramName.str() + ".maxXVelocity").as_double(); 
@@ -457,7 +487,6 @@ class ObjectTracker : public rclcpp::Node
   private:
     std::string m_frame_id{"world"};
     libobjecttracker::TrackerDuration m_last_valid_timeout;
-    double m_processing_warn_seconds;
     std::optional<rclcpp::Time> m_last_update_stamp;
     std::unique_ptr<object_tracker::TrackerLogger> m_tracker_logger;
     std::unique_ptr<object_tracker::TrackerDiagnostics> m_diagnostics;

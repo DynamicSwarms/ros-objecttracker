@@ -44,7 +44,10 @@ TrackerDiagnostics::TrackerDiagnostics(DiagnosticsNodeInterfaces interfaces, Dia
 }
 
 void TrackerDiagnostics::record_frame(
-  Clock::time_point started, bool usable, bool empty, bool backwards, bool repeated)
+  Clock::time_point started,
+  const pcl::PointCloud<pcl::PointXYZ>::Ptr & markers,
+  const std::vector<const libobjecttracker::Object*> & objects,
+  bool backwards, bool repeated)
 {
   if (m_received != Clock::time_point{}) {
     m_max_gap = std::max(m_max_gap, std::chrono::duration<double>(started - m_received).count());
@@ -52,20 +55,24 @@ void TrackerDiagnostics::record_frame(
   m_received = started;
   ++m_frames;
   ++m_interval_frames;
-  if (usable && !backwards && !repeated) m_usable = started;
-  if (!usable) {++m_malformed; m_interval_failure = true;}
-  if (empty) ++m_empty;
+  if (markers && !backwards && !repeated) m_usable = started;
+  if (!markers) {++m_malformed; m_interval_failure = true;}
+  if (markers) {
+    if (markers->empty()) ++m_empty;
+    m_invalid_object_frames += std::count_if(
+      objects.begin(), objects.end(),
+      [](const libobjecttracker::Object* object) {return !object->lastTransformationValid();});
+  }
   if (backwards) {++m_backwards; m_interval_failure = true;}
   if (repeated) {++m_repeated; m_interval_failure = true;}
   const double duration = std::chrono::duration<double>(Clock::now() - started).count();
   m_total_duration += duration;
   m_max_duration = std::max(m_max_duration, duration);
   m_min_duration = m_interval_frames == 1 ? duration : std::min(m_min_duration, duration);
-}
-
-void TrackerDiagnostics::record_invalid_object_frames(uint64_t count)
-{
-  m_invalid_object_frames += count;
+  if (duration > m_config.processing_warn) {
+    RCLCPP_WARN(
+      m_interfaces.logging->get_logger(), "Tracking latency high: %.4f seconds", duration);
+  }
 }
 
 void TrackerDiagnostics::record_acquisition() {++m_acquired;}
@@ -73,6 +80,25 @@ void TrackerDiagnostics::record_loss() {++m_lost; m_interval_loss = true;}
 void TrackerDiagnostics::record_timeout() {++m_timed_out; m_interval_failure = true;}
 
 void TrackerDiagnostics::record_failure() {++m_failures; m_interval_failure = true;}
+
+void TrackerDiagnostics::check_input_timeout()
+{
+  const auto now = Clock::now();
+  const auto age = [now](Clock::time_point stamp) {
+      return std::chrono::duration<double>(now - stamp).count();
+    };
+  const double usable_age = age(m_usable == Clock::time_point{} ? m_created : m_usable);
+  const bool starting = age(m_created) < m_config.startup_grace && m_usable == Clock::time_point{};
+  const bool input_stale = !starting && usable_age >= m_config.input_warn;
+  if (input_stale && !m_input_stale) {
+    RCLCPP_WARN(
+      m_interfaces.logging->get_logger(),
+      "Point-cloud input missing or unusable: no usable frame for %.3f seconds", usable_age);
+  } else if (!input_stale && m_input_stale) {
+    RCLCPP_INFO(m_interfaces.logging->get_logger(), "Usable point-cloud input resumed");
+  }
+  m_input_stale = input_stale;
+}
 
 void TrackerDiagnostics::publish(const TrackerSnapshot & snapshot)
 {
