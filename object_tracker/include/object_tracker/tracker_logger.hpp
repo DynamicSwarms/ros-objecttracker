@@ -1,6 +1,7 @@
 #pragma once
 
 #include <fstream>
+#include <memory>
 
 #include <libobjecttracker/object_tracker.h>
 #include <pcl/point_cloud.h>
@@ -16,9 +17,9 @@ public:
   explicit TrackerLogger(bool enabled);
 
   void log_callback(
-    const sensor_msgs::msg::PointCloud2 & message,
-    const pcl::PointCloud<pcl::PointXYZ> & markers,
-    libobjecttracker::ObjectTracker & tracker);
+    const std::shared_ptr<sensor_msgs::msg::PointCloud2> & message,
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr & markers,
+    const libobjecttracker::ObjectTracker & tracker);
 
 private:
   std::ofstream callback_log_;

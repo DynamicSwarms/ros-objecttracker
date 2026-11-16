@@ -2,9 +2,14 @@
   ros__parameters:
     # Single-marker objects have no valid orientation and therefore normally use /cf_positions.
     publishSingleMarkerObjectsToTf: false
+    lastValidTimeout: 0.25 # seconds; output freshness cutoff and observation diagnostic error
     pointCloud2TopicName: "pointCloud"
     logEnabled: false
     latencyThreshold: 0.035 # seconds
+    diagnostics_input_warn_seconds: 0.1
+    diagnostics_input_error_seconds: 0.25
+    diagnostics_observation_warn_seconds: 0.1
+    diagnostics_startup_grace_seconds: 2.0
     tfBroadcastRate: 20 # Hz
     numMarkerConfigurations: 2
     markerConfigurations:

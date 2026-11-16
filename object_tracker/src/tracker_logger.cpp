@@ -30,11 +30,11 @@ TrackerLogger::TrackerLogger(bool enabled)
 }
 
 void TrackerLogger::log_callback(
-  const sensor_msgs::msg::PointCloud2 & message,
-  const pcl::PointCloud<pcl::PointXYZ> & markers,
-  libobjecttracker::ObjectTracker & tracker)
+  const std::shared_ptr<sensor_msgs::msg::PointCloud2> & message,
+  const pcl::PointCloud<pcl::PointXYZ>::Ptr & markers,
+  const libobjecttracker::ObjectTracker & tracker)
 {
-  if (!callback_log_.is_open()) {
+  if (!markers || !callback_log_.is_open()) {
     return;
   }
 
@@ -42,16 +42,16 @@ void TrackerLogger::log_callback(
   // number of markers and tracked objects without losing frame boundaries.
   callback_log_ << std::setprecision(9)
                 << "{\"stamp_ns\":"
-                << (static_cast<std::int64_t>(message.header.stamp.sec) * 1000000000LL +
-                    static_cast<std::int64_t>(message.header.stamp.nanosec))
-                << ",\"frame_id\":\"" << message.header.frame_id
+                << (static_cast<std::int64_t>(message->header.stamp.sec) * 1000000000LL +
+                    static_cast<std::int64_t>(message->header.stamp.nanosec))
+                << ",\"frame_id\":\"" << message->header.frame_id
                 << "\",\"points\":[";
 
-  for (std::size_t i = 0; i < markers.size(); ++i) {
+  for (std::size_t i = 0; i < markers->size(); ++i) {
     if (i != 0) {
       callback_log_ << ',';
     }
-    const auto & point = markers[i];
+    const auto & point = (*markers)[i];
     callback_log_ << '[' << point.x << ',' << point.y << ',' << point.z << ']';
   }
 
